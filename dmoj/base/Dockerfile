@@ -17,5 +17,8 @@ COPY repo/additional_requirements.txt .
 COPY repo/package.json .
 COPY repo/package-lock.json .
 RUN npm install && \
+    pip3 install mysqlclient && \
+    pip3 install lxml_html_clean && \
+    pip3 install --upgrade setuptools && \
     pip3 install -r requirements.txt && \
     pip3 install -r additional_requirements.txt
