@@ -8,8 +8,10 @@ from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import path, reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _, ngettext
+from django.views.decorators.http import require_POST
 from reversion.admin import VersionAdmin
 
 from django_ace import AceWidget
@@ -69,19 +71,19 @@ class ContestProblemInline(SortableInlineAdminMixin, admin.TabularInline):
     readonly_fields = ('rejudge_column', 'rescore_column')
     form = ContestProblemInlineForm
 
+    @admin.display(description='')
     def rejudge_column(self, obj):
         if obj.id is None:
             return ''
-        return format_html('<a class="button rejudge-link" href="{0}">{1}</a>',
+        return format_html('<a class="button rejudge-link action-link" href="{0}">{1}</a>',
                            reverse('admin:judge_contest_rejudge', args=(obj.contest.id, obj.id)), _('Rejudge'))
-    rejudge_column.short_description = ''
 
+    @admin.display(description='')
     def rescore_column(self, obj):
         if obj.id is None:
             return ''
-        return format_html('<a class="button rescore-link" href="{}">Rescore</a>',
+        return format_html('<a class="button rescore-link action-link" href="{}">Rescore</a>',
                            reverse('admin:judge_contest_rescore', args=(obj.contest.id, obj.id)))
-    rescore_column.short_description = ''
 
 
 class ContestAnnouncementInlineForm(ModelForm):
@@ -96,12 +98,12 @@ class ContestAnnouncementInline(admin.StackedInline):
     form = ContestAnnouncementInlineForm
     extra = 0
 
+    @admin.display(description=_('Resend announcement'))
     def resend(self, obj):
         if obj.id is None:
             return 'Not available'
-        return format_html('<a class="button resend-link" href="{}">Resend</a>',
+        return format_html('<a class="button resend-link action-link" href="{}">Resend</a>',
                            reverse('admin:judge_contest_resend', args=(obj.contest.id, obj.id)))
-    resend.short_description = 'Resend announcement'
 
 
 class ContestForm(ModelForm):
@@ -242,6 +244,7 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
         from judge.tasks import rescore_contest
         transaction.on_commit(rescore_contest.s(contest_key).delay)
 
+    @admin.display(description=_('Mark contests as visible'))
     def make_visible(self, request, queryset):
         if not request.user.has_perm('judge.change_contest_visibility'):
             queryset = queryset.filter(Q(is_private=True) | Q(is_organization_private=True))
@@ -249,8 +252,8 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
         self.message_user(request, ngettext('%d contest successfully marked as visible.',
                                             '%d contests successfully marked as visible.',
                                             count) % count)
-    make_visible.short_description = _('Mark contests as visible')
 
+    @admin.display(description=_('Mark contests as hidden'))
     def make_hidden(self, request, queryset):
         if not request.user.has_perm('judge.change_contest_visibility'):
             queryset = queryset.filter(Q(is_private=True) | Q(is_organization_private=True))
@@ -258,8 +261,8 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
         self.message_user(request, ngettext('%d contest successfully marked as hidden.',
                                             '%d contests successfully marked as hidden.',
                                             count) % count)
-    make_hidden.short_description = _('Mark contests as hidden')
 
+    @admin.display(description=_('Lock contest submissions'))
     def set_locked(self, request, queryset):
         for row in queryset:
             self.set_locked_after(row, timezone.now())
@@ -267,8 +270,8 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
         self.message_user(request, ngettext('%d contest successfully locked.',
                                             '%d contests successfully locked.',
                                             count) % count)
-    set_locked.short_description = _('Lock contest submissions')
 
+    @admin.display(description=_('Unlock contest submissions'))
     def set_unlocked(self, request, queryset):
         for row in queryset:
             self.set_locked_after(row, None)
@@ -276,7 +279,6 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
         self.message_user(request, ngettext('%d contest successfully unlocked.',
                                             '%d contests successfully unlocked.',
                                             count) % count)
-    set_unlocked.short_description = _('Unlock contest submissions')
 
     def set_locked_after(self, contest, locked_after):
         with transaction.atomic():
@@ -294,8 +296,13 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
             path('<int:contest_id>/resend/<int:announcement_id>/', self.resend_view, name='judge_contest_resend'),
         ] + super(ContestAdmin, self).get_urls()
 
+    @method_decorator(require_POST)
     def rejudge_view(self, request, contest_id, problem_id):
-        queryset = ContestSubmission.objects.filter(problem_id=problem_id).select_related('submission')
+        contest = get_object_or_404(Contest, id=contest_id)
+        if not request.user.is_staff or not self.has_change_permission(request, contest):
+            raise PermissionDenied()
+        queryset = ContestSubmission.objects.filter(participation__contest_id=contest_id,
+                                                    problem_id=problem_id).select_related('submission')
         for model in queryset:
             model.submission.judge(rejudge=True, rejudge_user=request.user)
 
@@ -304,8 +311,13 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
                                             len(queryset)) % len(queryset))
         return HttpResponseRedirect(reverse('admin:judge_contest_change', args=(contest_id,)))
 
+    @method_decorator(require_POST)
     def rescore_view(self, request, contest_id, problem_id):
-        queryset = ContestSubmission.objects.filter(problem_id=problem_id).select_related('submission')
+        contest = get_object_or_404(Contest, id=contest_id)
+        if not request.user.is_staff or not self.has_change_permission(request, contest):
+            raise PermissionDenied()
+        queryset = ContestSubmission.objects.filter(participation__contest_id=contest_id,
+                                                    problem_id=problem_id).select_related('submission')
         for model in queryset:
             model.submission.update_contest()
 
@@ -314,11 +326,16 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
                                             len(queryset)) % len(queryset))
         return HttpResponseRedirect(reverse('admin:judge_contest_change', args=(contest_id,)))
 
+    @method_decorator(require_POST)
     def resend_view(self, request, contest_id, announcement_id):
+        contest = get_object_or_404(Contest, id=contest_id)
+        if not request.user.is_staff or not self.has_change_permission(request, contest):
+            raise PermissionDenied()
         announcement = get_object_or_404(ContestAnnouncement, id=announcement_id)
         announcement.send()
         return HttpResponseRedirect(reverse('admin:judge_contest_change', args=(contest_id,)))
 
+    @method_decorator(require_POST)
     def rate_all_view(self, request):
         if not request.user.has_perm('judge.contest_rating'):
             raise PermissionDenied()
@@ -330,6 +347,7 @@ class ContestAdmin(NoBatchDeleteMixin, VersionAdmin):
                 rate_contest(contest)
         return HttpResponseRedirect(reverse('admin:judge_contest_changelist'))
 
+    @method_decorator(require_POST)
     def rate_view(self, request, id):
         if not request.user.has_perm('judge.contest_rating'):
             raise PermissionDenied()
@@ -386,6 +404,7 @@ class ContestParticipationAdmin(admin.ModelAdmin):
         if form.changed_data and 'is_disqualified' in form.changed_data:
             obj.set_disqualified(obj.is_disqualified)
 
+    @admin.display(description=_('Recalculate results'))
     def recalculate_results(self, request, queryset):
         count = 0
         for participation in queryset:
@@ -394,14 +413,11 @@ class ContestParticipationAdmin(admin.ModelAdmin):
         self.message_user(request, ngettext('%d participation recalculated.',
                                             '%d participations recalculated.',
                                             count) % count)
-    recalculate_results.short_description = _('Recalculate results')
 
+    @admin.display(description=_('username'), ordering='user__user__username')
     def username(self, obj):
         return obj.user.username
-    username.short_description = _('username')
-    username.admin_order_field = 'user__user__username'
 
+    @admin.display(description=_('virtual'), ordering='virtual')
     def show_virtual(self, obj):
         return obj.virtual or '-'
-    show_virtual.short_description = _('virtual')
-    show_virtual.admin_order_field = 'virtual'

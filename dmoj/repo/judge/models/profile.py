@@ -40,7 +40,10 @@ class EncryptedNullCharField(EncryptedCharField):
 class Organization(models.Model):
     name = models.CharField(max_length=128, verbose_name=_('organization title'))
     slug = models.SlugField(max_length=128, verbose_name=_('organization slug'),
-                            help_text=_('Organization name shown in URLs.'))
+                            help_text=_('Organization name shown in URLs.'),
+                            validators=[RegexValidator(r'^[a-zA-Z]',
+                                                       _('Organization slugs must begin with a letter.'))],
+                            unique=True)
     short_name = models.CharField(max_length=20, verbose_name=_('short name'),
                                   help_text=_('Displayed beside user name during contests.'))
     about = models.TextField(verbose_name=_('organization description'))
@@ -102,10 +105,10 @@ class Organization(models.Model):
         return self.name
 
     def get_absolute_url(self):
-        return reverse('organization_home', args=(self.id, self.slug))
+        return reverse('organization_home', args=[self.slug])
 
     def get_users_url(self):
-        return reverse('organization_users', args=(self.id, self.slug))
+        return reverse('organization_users', args=[self.slug])
 
     class Meta:
         ordering = ['name']
@@ -138,11 +141,14 @@ class Profile(models.Model):
     points = models.FloatField(default=0)
     performance_points = models.FloatField(default=0)
     contribution_points = models.IntegerField(default=0)
+    vnoj_points = models.IntegerField(default=0)
     problem_count = models.IntegerField(default=0)
     ace_theme = models.CharField(max_length=30, verbose_name=_('Ace theme'), choices=ACE_THEMES, default='auto')
-    site_theme = models.CharField(max_length=10, verbose_name=_('site theme'), choices=SITE_THEMES, default='auto')
+    site_theme = models.CharField(max_length=10, verbose_name=_('site theme'), choices=SITE_THEMES, default='light')
     last_access = models.DateTimeField(verbose_name=_('last access time'), default=now)
     ip = models.GenericIPAddressField(verbose_name=_('last IP'), blank=True, null=True)
+    ip_auth = models.GenericIPAddressField(verbose_name=_('IP-based authentication'),
+                                           unique=True, blank=True, null=True)
     badges = models.ManyToManyField(Badge, verbose_name=_('badges'), blank=True, related_name='users')
     display_badge = models.ForeignKey(Badge, verbose_name=_('display badge'), null=True, on_delete=models.SET_NULL)
     organizations = SortedManyToManyField(Organization, verbose_name=_('organization'), blank=True,
@@ -215,6 +221,13 @@ class Profile(models.Model):
     @cached_property
     def is_new_user(self):
         return not self.user.is_staff and not self.has_enough_solves
+
+    @cached_property
+    def is_banned(self):
+        return not self.user.is_active and self.ban_reason is not None
+
+    def can_be_banned_by(self, staff):
+        return self.user != staff and not self.user.is_superuser and staff.has_perm('judge.ban_user')
 
     @cached_property
     def can_tag_problems(self):
@@ -359,6 +372,17 @@ class Profile(models.Model):
 
     ban_user.alters_data = True
 
+    def unban_user(self):
+        self.ban_reason = None
+        self.display_rank = Profile._meta.get_field('display_rank').get_default()
+        self.is_unlisted = False
+        self.save(update_fields=['ban_reason', 'display_rank', 'is_unlisted'])
+
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
+
+    unban_user.alters_data = True
+
     def get_absolute_url(self):
         return reverse('user_page', args=(self.user.username,))
 
@@ -387,6 +411,7 @@ class Profile(models.Model):
             ('high_problem_timelimit', _('Can set high problem timelimit')),
             ('long_contest_duration', _('Can set long contest duration')),
             ('create_mass_testcases', _('Can create unlimitted number of testcases for a problem')),
+            ('ban_user', _('Ban users')),
         )
         verbose_name = _('user profile')
         verbose_name_plural = _('user profiles')
