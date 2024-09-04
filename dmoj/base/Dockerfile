@@ -12,8 +12,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g sass postcss-cli postcss autoprefixer
-RUN pip3 install \
-        pymysql mysqlclient websocket-client uwsgi django-redis redis
+RUN pip3 install pymysql mysqlclient websocket-client uwsgi django-redis redis
 
 WORKDIR /
 COPY repo/requirements.txt .
