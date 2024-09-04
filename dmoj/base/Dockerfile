@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bookworm
 
 RUN apt-get update && \
     apt-get install -y \
@@ -10,6 +10,10 @@ RUN apt-get update && \
     apt-get install -y nodejs && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g sass postcss-cli postcss autoprefixer
+RUN pip3 install \
+        pymysql mysqlclient websocket-client uwsgi django-redis redis
 
 WORKDIR /
 COPY repo/requirements.txt .
