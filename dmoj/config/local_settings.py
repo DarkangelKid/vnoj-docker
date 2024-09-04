@@ -108,7 +108,7 @@ STATICFILES_FINDERS += ('compressor.finders.CompressorFinder',)
 ADMINS = ()
 
 # The sender for the aforementioned emails.
-SERVER_EMAIL = 'VNOJ: VNOI Online Judge <vnoj@vnoi.info>'
+SERVER_EMAIL = 'CMOJ: CodeMath Online Judge <codemath.contact@gmail.com>'
 
 
 ################################################
@@ -135,10 +135,10 @@ DMOJ_RESOURCES = '/assets/resources/'
 ############################################
 
 ## DMOJ site display settings.
-SITE_NAME = 'VNOJ'
+SITE_NAME = 'CMOJ'
 SITE_FULL_URL = os.environ.get('SITE_FULL_URL', 'http://localhost/')
-SITE_LONG_NAME = 'VNOJ: VNOI Online Judge'
-SITE_ADMIN_EMAIL = 'leduythuc@vnoi.info'
+SITE_LONG_NAME = 'CMOJ: CodeMath Online Judge'
+SITE_ADMIN_EMAIL = 'tunglamnguyen91@gmail.com'
 TERMS_OF_SERVICE_URL = None
 
 ## Media files settings.
